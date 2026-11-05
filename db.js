@@ -1,459 +1,374 @@
 /**
- * db.js - Web Page Database (IndexedDB Wrapper)
- * 
- * Provides persistent, client-side transactional database storage using
- * the browser's native IndexedDB API, with transparent fallback to localStorage
- * if IndexedDB is blocked or disabled.
+ * db.js — TaskFlow Web Page Database
+ * Client-side IndexedDB engine with localStorage fallback.
+ * No backend required — all data lives in the browser.
  */
 
-const DB_CONFIG = {
-  name: 'DragAndDropBoardDB',
-  version: 1,
-  stores: {
-    columns: 'columns',
-    cards: 'cards',
-    settings: 'settings'
-  }
-};
+'use strict';
 
-// Initial default seed data for first-time launch
-const DEFAULT_COLUMNS = [
-  { id: 'col-todo', title: 'To Do', order: 0, createdAt: Date.now() },
-  { id: 'col-progress', title: 'In Progress', order: 1, createdAt: Date.now() + 1 },
-  { id: 'col-review', title: 'In Review', order: 2, createdAt: Date.now() + 2 },
-  { id: 'col-done', title: 'Done', order: 3, createdAt: Date.now() + 3 }
+/* ─── Schema ───────────────────────────────────────────────────────────────── */
+const DB_NAME    = 'TaskFlowDB';
+const DB_VERSION = 1;
+const STORE = { COLUMNS: 'columns', CARDS: 'cards', SETTINGS: 'settings' };
+
+/* ─── Seed Data (shown on first visit) ─────────────────────────────────────── */
+const SEED_COLUMNS = [
+  { id: 'col-backlog',    title: 'Backlog',      order: 0, createdAt: 1000 },
+  { id: 'col-todo',      title: 'To Do',        order: 1, createdAt: 1001 },
+  { id: 'col-progress',  title: 'In Progress',  order: 2, createdAt: 1002 },
+  { id: 'col-done',      title: 'Done',         order: 3, createdAt: 1003 },
 ];
 
-const DEFAULT_CARDS = [
+const SEED_CARDS = [
   {
-    id: 'card-1',
-    columnId: 'col-todo',
-    title: 'Research UI drag-and-drop interactions',
-    description: 'Explore HTML5 drag and drop events, ghost image styling, and drop placeholder indicators.',
-    priority: 'medium',
-    tags: ['Research', 'UI/UX'],
-    dueDate: new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0],
-    order: 0,
-    createdAt: Date.now() - 100000
+    id: 'card-s1', columnId: 'col-backlog', order: 0,
+    title: 'Set up project structure',
+    description: 'Create folder layout, initialize Git repo, and configure linting rules.',
+    priority: 'low', tags: ['Setup', 'DevOps'],
+    dueDate: '2026-11-20', createdAt: 2000,
   },
   {
-    id: 'card-2',
-    columnId: 'col-todo',
-    title: 'Design database schema for IndexedDB',
-    description: 'Setup object stores for columns, cards, and user preferences with proper indices.',
-    priority: 'high',
-    tags: ['Database', 'Architecture'],
-    dueDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
-    order: 1,
-    createdAt: Date.now() - 80000
+    id: 'card-s2', columnId: 'col-backlog', order: 1,
+    title: 'Write technical specification',
+    description: 'Document API contracts, data models, and component hierarchy.',
+    priority: 'medium', tags: ['Docs'],
+    dueDate: '2026-11-25', createdAt: 2001,
   },
   {
-    id: 'card-3',
-    columnId: 'col-progress',
-    title: 'Implement smooth drag & drop handlers',
-    description: 'Listen to dragstart, dragover, dragleave, and drop events. Ensure cards reorder correctly.',
-    priority: 'urgent',
-    tags: ['Core', 'JavaScript'],
-    dueDate: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-    order: 0,
-    createdAt: Date.now() - 60000
+    id: 'card-s3', columnId: 'col-todo', order: 0,
+    title: 'Design color system & tokens',
+    description: 'Define CSS custom properties for dark and light themes.',
+    priority: 'high', tags: ['Design', 'CSS'],
+    dueDate: '2026-11-10', createdAt: 2002,
   },
   {
-    id: 'card-4',
-    columnId: 'col-progress',
-    title: 'Add tag filtering & instant search',
-    description: 'Filter board cards in real-time as users type or select priority filters.',
-    priority: 'low',
-    tags: ['Feature'],
-    dueDate: '',
-    order: 1,
-    createdAt: Date.now() - 40000
+    id: 'card-s4', columnId: 'col-todo', order: 1,
+    title: 'Implement IndexedDB schema',
+    description: 'Create object stores for columns, cards, and settings with indices.',
+    priority: 'urgent', tags: ['Database', 'Core'],
+    dueDate: '2026-11-08', createdAt: 2003,
   },
   {
-    id: 'card-5',
-    columnId: 'col-review',
-    title: 'Verify offline persistence',
-    description: 'Test reloading the browser page to ensure changes remain stored in the browser database.',
-    priority: 'medium',
-    tags: ['Testing', 'QA'],
-    dueDate: new Date(Date.now() + 86400000 * 4).toISOString().split('T')[0],
-    order: 0,
-    createdAt: Date.now() - 20000
+    id: 'card-s5', columnId: 'col-todo', order: 2,
+    title: 'Build card component',
+    description: 'Priority badge, tags, due-date badge, hover actions (edit / delete).',
+    priority: 'high', tags: ['UI', 'JavaScript'],
+    dueDate: '2026-11-12', createdAt: 2004,
   },
   {
-    id: 'card-6',
-    columnId: 'col-done',
-    title: 'Project kick-off & environment setup',
-    description: 'Configured pure HTML5, CSS3, and modern Vanilla ES6+ without external frameworks.',
-    priority: 'low',
-    tags: ['Setup'],
-    dueDate: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-    order: 0,
-    createdAt: Date.now() - 10000
-  }
+    id: 'card-s6', columnId: 'col-progress', order: 0,
+    title: 'HTML5 drag & drop engine',
+    description: 'Handle dragstart, dragover, dragleave, drop events. Show drop placeholder.',
+    priority: 'urgent', tags: ['Core', 'DnD'],
+    dueDate: '2026-11-07', createdAt: 2005,
+  },
+  {
+    id: 'card-s7', columnId: 'col-progress', order: 1,
+    title: 'Real-time search & filter',
+    description: 'Filter cards across all columns by title, description, tag, and priority.',
+    priority: 'medium', tags: ['Feature', 'UX'],
+    dueDate: '', createdAt: 2006,
+  },
+  {
+    id: 'card-s8', columnId: 'col-progress', order: 2,
+    title: 'Column reorder via drag',
+    description: 'Allow dragging column headers to swap column positions on the board.',
+    priority: 'low', tags: ['DnD', 'UX'],
+    dueDate: '2026-11-15', createdAt: 2007,
+  },
+  {
+    id: 'card-s9', columnId: 'col-done', order: 0,
+    title: 'Responsive layout scaffolding',
+    description: 'Horizontal scroll for desktop, vertical stacking for mobile viewports.',
+    priority: 'medium', tags: ['CSS', 'Responsive'],
+    dueDate: '2026-11-01', createdAt: 2008,
+  },
+  {
+    id: 'card-s10', columnId: 'col-done', order: 1,
+    title: 'Dark / light theme toggle',
+    description: 'Persist theme preference in IndexedDB settings store.',
+    priority: 'low', tags: ['UI', 'Accessibility'],
+    dueDate: '2026-11-02', createdAt: 2009,
+  },
 ];
 
-class WebPageDatabase {
+/* ─── Database Class ────────────────────────────────────────────────────────── */
+class TaskFlowDB {
   constructor() {
-    this.db = null;
-    this.engine = 'IndexedDB'; // 'IndexedDB' or 'localStorage (Fallback)'
-    this.readyPromise = this.init();
+    this.idb    = null;                    // IDBDatabase reference
+    this.engine = 'IndexedDB';             // reported to UI
+    this.ready  = this._open();            // Promise that resolves when DB is usable
   }
 
-  /**
-   * Initializes the database connection and creates stores/indices if needed.
-   */
-  async init() {
-    if (!('indexedDB' in window)) {
-      console.warn('IndexedDB not supported by this browser. Falling back to localStorage.');
-      this.engine = 'localStorage (Fallback)';
-      this.initLocalStorageFallback();
-      return;
-    }
-
-    try {
-      this.db = await new Promise((resolve, reject) => {
-        const request = window.indexedDB.open(DB_CONFIG.name, DB_CONFIG.version);
-
-        request.onupgradeneeded = (event) => {
-          const db = event.target.result;
-
-          // Columns store
-          if (!db.objectStoreNames.contains(DB_CONFIG.stores.columns)) {
-            const colStore = db.createObjectStore(DB_CONFIG.stores.columns, { keyPath: 'id' });
-            colStore.createIndex('order', 'order', { unique: false });
-          }
-
-          // Cards store
-          if (!db.objectStoreNames.contains(DB_CONFIG.stores.cards)) {
-            const cardStore = db.createObjectStore(DB_CONFIG.stores.cards, { keyPath: 'id' });
-            cardStore.createIndex('columnId', 'columnId', { unique: false });
-            cardStore.createIndex('order', 'order', { unique: false });
-            cardStore.createIndex('priority', 'priority', { unique: false });
-          }
-
-          // Settings store
-          if (!db.objectStoreNames.contains(DB_CONFIG.stores.settings)) {
-            db.createObjectStore(DB_CONFIG.stores.settings, { keyPath: 'key' });
-          }
-        };
-
-        request.onsuccess = (event) => resolve(event.target.result);
-        request.onerror = (event) => reject(event.target.error);
-      });
-
-      // Verify if database needs initial seeding
-      await this.seedInitialDataIfNeeded();
-    } catch (err) {
-      console.warn('Failed to open IndexedDB. Falling back to localStorage:', err);
-      this.engine = 'localStorage (Fallback)';
-      this.initLocalStorageFallback();
-    }
-  }
-
-  /**
-   * Seeds default columns and cards if database is empty on first visit.
-   */
-  async seedInitialDataIfNeeded() {
-    const existingColumns = await this.getAllColumns();
-    if (!existingColumns || existingColumns.length === 0) {
-      console.info('Seeding default columns and sample cards to IndexedDB...');
-      for (const col of DEFAULT_COLUMNS) {
-        await this.putRecord(DB_CONFIG.stores.columns, col);
+  /* ── Open / Upgrade ───────────────────────────────────────────────────────── */
+  _open() {
+    return new Promise((resolve) => {
+      if (!window.indexedDB) {
+        this.engine = 'localStorage';
+        this._seedLS();
+        resolve();
+        return;
       }
-      for (const card of DEFAULT_CARDS) {
-        await this.putRecord(DB_CONFIG.stores.cards, card);
-      }
-      await this.setSetting('theme', 'dark');
-      await this.setSetting('initializedAt', Date.now());
-    }
-  }
 
-  initLocalStorageFallback() {
-    if (!localStorage.getItem('board_columns')) {
-      localStorage.setItem('board_columns', JSON.stringify(DEFAULT_COLUMNS));
-    }
-    if (!localStorage.getItem('board_cards')) {
-      localStorage.setItem('board_cards', JSON.stringify(DEFAULT_CARDS));
-    }
-    if (!localStorage.getItem('board_settings')) {
-      localStorage.setItem('board_settings', JSON.stringify({ theme: 'dark' }));
-    }
-  }
+      const req = window.indexedDB.open(DB_NAME, DB_VERSION);
 
-  // --- Generic Transaction Helpers ---
+      req.onupgradeneeded = ({ target: { result: db } }) => {
+        if (!db.objectStoreNames.contains(STORE.COLUMNS)) {
+          const cs = db.createObjectStore(STORE.COLUMNS, { keyPath: 'id' });
+          cs.createIndex('order', 'order');
+        }
+        if (!db.objectStoreNames.contains(STORE.CARDS)) {
+          const ks = db.createObjectStore(STORE.CARDS, { keyPath: 'id' });
+          ks.createIndex('columnId', 'columnId');
+          ks.createIndex('order',    'order');
+          ks.createIndex('priority', 'priority');
+        }
+        if (!db.objectStoreNames.contains(STORE.SETTINGS)) {
+          db.createObjectStore(STORE.SETTINGS, { keyPath: 'key' });
+        }
+      };
 
-  async getTransaction(storeName, mode = 'readonly') {
-    await this.readyPromise;
-    if (this.engine !== 'IndexedDB' || !this.db) {
-      return null;
-    }
-    return this.db.transaction(storeName, mode);
-  }
+      req.onsuccess = async ({ target: { result: db } }) => {
+        this.idb = db;
+        await this._seedIDB();
+        resolve();
+      };
 
-  async putRecord(storeName, record) {
-    await this.readyPromise;
-    if (this.engine !== 'IndexedDB' || !this.db) {
-      const data = JSON.parse(localStorage.getItem(`board_${storeName}`) || '[]');
-      const index = data.findIndex(item => item.id === record.id || item.key === record.key);
-      if (index >= 0) {
-        data[index] = record;
-      } else {
-        data.push(record);
-      }
-      localStorage.setItem(`board_${storeName}`, JSON.stringify(data));
-      return record;
-    }
-
-    return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const req = store.put(record);
-      req.onsuccess = () => resolve(record);
-      req.onerror = () => reject(req.error);
+      req.onerror = () => {
+        console.warn('IndexedDB open failed — falling back to localStorage');
+        this.engine = 'localStorage';
+        this._seedLS();
+        resolve();
+      };
     });
   }
 
-  async deleteRecord(storeName, key) {
-    await this.readyPromise;
-    if (this.engine !== 'IndexedDB' || !this.db) {
-      let data = JSON.parse(localStorage.getItem(`board_${storeName}`) || '[]');
-      data = data.filter(item => (item.id || item.key) !== key);
-      localStorage.setItem(`board_${storeName}`, JSON.stringify(data));
-      return true;
-    }
+  /* ── Seeding ──────────────────────────────────────────────────────────────── */
+  async _seedIDB() {
+    // Only seed if columns store is empty
+    const cols = await this._idbGetAll(STORE.COLUMNS);
+    if (cols.length > 0) return;
 
-    return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const req = store.delete(key);
-      req.onsuccess = () => resolve(true);
-      req.onerror = () => reject(req.error);
-    });
+    const tx = this.idb.transaction([STORE.COLUMNS, STORE.CARDS, STORE.SETTINGS], 'readwrite');
+    SEED_COLUMNS.forEach(c   => tx.objectStore(STORE.COLUMNS).put(c));
+    SEED_CARDS.forEach(c     => tx.objectStore(STORE.CARDS).put(c));
+    tx.objectStore(STORE.SETTINGS).put({ key: 'theme', value: 'dark' });
+    await this._txDone(tx);
   }
 
-  async getAllRecords(storeName) {
-    await this.readyPromise;
-    if (this.engine !== 'IndexedDB' || !this.db) {
-      return JSON.parse(localStorage.getItem(`board_${storeName}`) || '[]');
+  _seedLS() {
+    if (!localStorage.getItem('tf_columns')) {
+      localStorage.setItem('tf_columns',  JSON.stringify(SEED_COLUMNS));
+      localStorage.setItem('tf_cards',    JSON.stringify(SEED_CARDS));
+      localStorage.setItem('tf_settings', JSON.stringify({ theme: 'dark' }));
     }
+  }
 
+  /* ── Low-level IDB helpers ──────────────────────────────────────────────── */
+  _idbGetAll(storeName) {
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(storeName, 'readonly');
-      const store = tx.objectStore(storeName);
-      const req = store.getAll();
+      const tx  = this.idb.transaction(storeName, 'readonly');
+      const req = tx.objectStore(storeName).getAll();
       req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
+      req.onerror   = () => reject(req.error);
     });
   }
 
-  // --- Columns API ---
+  _idbPut(storeName, record) {
+    return new Promise((resolve, reject) => {
+      const tx  = this.idb.transaction(storeName, 'readwrite');
+      const req = tx.objectStore(storeName).put(record);
+      req.onsuccess = () => resolve(record);
+      req.onerror   = () => reject(req.error);
+    });
+  }
 
-  async getAllColumns() {
-    const cols = await this.getAllRecords(DB_CONFIG.stores.columns);
+  _idbDelete(storeName, key) {
+    return new Promise((resolve, reject) => {
+      const tx  = this.idb.transaction(storeName, 'readwrite');
+      const req = tx.objectStore(storeName).delete(key);
+      req.onsuccess = () => resolve();
+      req.onerror   = () => reject(req.error);
+    });
+  }
+
+  _txDone(tx) {
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror    = () => reject(tx.error);
+      tx.onabort    = () => reject(tx.error);
+    });
+  }
+
+  /* ── localStorage helpers ───────────────────────────────────────────────── */
+  _lsGet(key) {
+    try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; }
+  }
+  _lsSet(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+
+  /* ── Columns ────────────────────────────────────────────────────────────── */
+  async getColumns() {
+    await this.ready;
+    let cols;
+    if (this.idb) {
+      cols = await this._idbGetAll(STORE.COLUMNS);
+    } else {
+      cols = this._lsGet('tf_columns') || [];
+    }
     return cols.sort((a, b) => a.order - b.order);
   }
 
   async saveColumn(col) {
-    return this.putRecord(DB_CONFIG.stores.columns, col);
+    await this.ready;
+    if (this.idb) return this._idbPut(STORE.COLUMNS, col);
+    const all = this._lsGet('tf_columns') || [];
+    const idx = all.findIndex(c => c.id === col.id);
+    if (idx >= 0) all[idx] = col; else all.push(col);
+    this._lsSet('tf_columns', all);
   }
 
   async deleteColumn(colId) {
-    // Delete column and all associated cards
-    await this.deleteRecord(DB_CONFIG.stores.columns, colId);
-    const cards = await this.getAllCards();
-    const cardsToDelete = cards.filter(c => c.columnId === colId);
-    for (const card of cardsToDelete) {
-      await this.deleteCard(card.id);
+    await this.ready;
+    if (this.idb) {
+      // Delete all cards in that column first
+      const cards = await this._idbGetAll(STORE.CARDS);
+      const tx = this.idb.transaction([STORE.COLUMNS, STORE.CARDS], 'readwrite');
+      tx.objectStore(STORE.COLUMNS).delete(colId);
+      cards.filter(c => c.columnId === colId).forEach(c => tx.objectStore(STORE.CARDS).delete(c.id));
+      return this._txDone(tx);
     }
+    const cols  = (this._lsGet('tf_columns') || []).filter(c => c.id !== colId);
+    const cards = (this._lsGet('tf_cards')   || []).filter(c => c.columnId !== colId);
+    this._lsSet('tf_columns', cols);
+    this._lsSet('tf_cards',   cards);
   }
 
-  async batchUpdateColumns(columns) {
-    for (const col of columns) {
-      await this.saveColumn(col);
+  async batchSaveColumns(columns) {
+    await this.ready;
+    if (this.idb) {
+      const tx = this.idb.transaction(STORE.COLUMNS, 'readwrite');
+      columns.forEach(c => tx.objectStore(STORE.COLUMNS).put(c));
+      return this._txDone(tx);
     }
+    this._lsSet('tf_columns', columns);
   }
 
-  // --- Cards API ---
-
-  async getAllCards() {
-    const cards = await this.getAllRecords(DB_CONFIG.stores.cards);
+  /* ── Cards ──────────────────────────────────────────────────────────────── */
+  async getCards() {
+    await this.ready;
+    let cards;
+    if (this.idb) {
+      cards = await this._idbGetAll(STORE.CARDS);
+    } else {
+      cards = this._lsGet('tf_cards') || [];
+    }
     return cards.sort((a, b) => a.order - b.order);
   }
 
-  async getCardsByColumn(columnId) {
-    const cards = await this.getAllCards();
-    return cards
-      .filter(card => card.columnId === columnId)
-      .sort((a, b) => a.order - b.order);
-  }
-
   async saveCard(card) {
-    if (!card.updatedAt) {
-      card.updatedAt = Date.now();
-    }
-    return this.putRecord(DB_CONFIG.stores.cards, card);
+    await this.ready;
+    card.updatedAt = Date.now();
+    if (this.idb) return this._idbPut(STORE.CARDS, card);
+    const all = this._lsGet('tf_cards') || [];
+    const idx = all.findIndex(c => c.id === card.id);
+    if (idx >= 0) all[idx] = card; else all.push(card);
+    this._lsSet('tf_cards', all);
   }
 
   async deleteCard(cardId) {
-    return this.deleteRecord(DB_CONFIG.stores.cards, cardId);
+    await this.ready;
+    if (this.idb) return this._idbDelete(STORE.CARDS, cardId);
+    const all = (this._lsGet('tf_cards') || []).filter(c => c.id !== cardId);
+    this._lsSet('tf_cards', all);
   }
 
-  async batchUpdateCards(cards) {
-    await this.readyPromise;
-    if (this.engine !== 'IndexedDB' || !this.db) {
-      for (const card of cards) {
-        await this.saveCard(card);
-      }
-      return;
+  async batchSaveCards(cards) {
+    await this.ready;
+    if (this.idb) {
+      const tx = this.idb.transaction(STORE.CARDS, 'readwrite');
+      const now = Date.now();
+      cards.forEach(c => { c.updatedAt = now; tx.objectStore(STORE.CARDS).put(c); });
+      return this._txDone(tx);
     }
+    const all = this._lsGet('tf_cards') || [];
+    cards.forEach(card => {
+      card.updatedAt = Date.now();
+      const idx = all.findIndex(c => c.id === card.id);
+      if (idx >= 0) all[idx] = card; else all.push(card);
+    });
+    this._lsSet('tf_cards', all);
+  }
 
-    // Atomic transaction for reordering cards
-    return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(DB_CONFIG.stores.cards, 'readwrite');
-      const store = tx.objectStore(DB_CONFIG.stores.cards);
-      
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-
-      cards.forEach(card => {
-        card.updatedAt = Date.now();
-        store.put(card);
+  /* ── Settings ───────────────────────────────────────────────────────────── */
+  async getSetting(key, fallback = null) {
+    await this.ready;
+    if (this.idb) {
+      return new Promise(resolve => {
+        const tx  = this.idb.transaction(STORE.SETTINGS, 'readonly');
+        const req = tx.objectStore(STORE.SETTINGS).get(key);
+        req.onsuccess = () => resolve(req.result ? req.result.value : fallback);
+        req.onerror   = () => resolve(fallback);
       });
-    });
-  }
-
-  // --- Settings API ---
-
-  async getSetting(key, defaultValue = null) {
-    await this.readyPromise;
-    if (this.engine !== 'IndexedDB' || !this.db) {
-      const settings = JSON.parse(localStorage.getItem('board_settings') || '{}');
-      return settings[key] !== undefined ? settings[key] : defaultValue;
     }
-
-    return new Promise((resolve) => {
-      const tx = this.db.transaction(DB_CONFIG.stores.settings, 'readonly');
-      const store = tx.objectStore(DB_CONFIG.stores.settings);
-      const req = store.get(key);
-      req.onsuccess = () => resolve(req.result ? req.result.value : defaultValue);
-      req.onerror = () => resolve(defaultValue);
-    });
+    const s = this._lsGet('tf_settings') || {};
+    return s[key] !== undefined ? s[key] : fallback;
   }
 
   async setSetting(key, value) {
-    await this.readyPromise;
-    if (this.engine !== 'IndexedDB' || !this.db) {
-      const settings = JSON.parse(localStorage.getItem('board_settings') || '{}');
-      settings[key] = value;
-      localStorage.setItem('board_settings', JSON.stringify(settings));
-      return;
-    }
-
-    return this.putRecord(DB_CONFIG.stores.settings, { key, value });
+    await this.ready;
+    if (this.idb) return this._idbPut(STORE.SETTINGS, { key, value });
+    const s = this._lsGet('tf_settings') || {};
+    s[key] = value;
+    this._lsSet('tf_settings', s);
   }
 
-  // --- Database Stats & Maintenance API ---
-
-  async getDatabaseStats() {
-    const columns = await this.getAllColumns();
-    const cards = await this.getAllCards();
-    return {
-      engine: this.engine,
-      databaseName: DB_CONFIG.name,
-      version: DB_CONFIG.version,
-      columnsCount: columns.length,
-      cardsCount: cards.length,
-      storageType: 'Client-Side Web Page Database (In-Browser)'
-    };
+  /* ── Maintenance ────────────────────────────────────────────────────────── */
+  async getStats() {
+    const [columns, cards] = await Promise.all([this.getColumns(), this.getCards()]);
+    return { engine: this.engine, dbName: DB_NAME, columns: columns.length, cards: cards.length };
   }
 
-  async exportDatabaseJSON() {
-    const columns = await this.getAllColumns();
-    const cards = await this.getAllCards();
-    const settings = await this.getAllRecords(DB_CONFIG.stores.settings);
-
-    return JSON.stringify({
-      version: DB_CONFIG.version,
-      exportedAt: new Date().toISOString(),
-      columns,
-      cards,
-      settings
-    }, null, 2);
+  async exportJSON() {
+    const [columns, cards] = await Promise.all([this.getColumns(), this.getCards()]);
+    return JSON.stringify({ version: DB_VERSION, exportedAt: new Date().toISOString(), columns, cards }, null, 2);
   }
 
-  async importDatabaseJSON(jsonString) {
+  async importJSON(jsonStr) {
     try {
-      const data = JSON.parse(jsonString);
-      if (!Array.isArray(data.columns) || !Array.isArray(data.cards)) {
-        throw new Error('Invalid backup file structure.');
-      }
-
-      // Clear existing records
-      await this.clearAllData();
-
-      // Restore columns
-      for (const col of data.columns) {
-        await this.saveColumn(col);
-      }
-
-      // Restore cards
-      for (const card of data.cards) {
-        await this.saveCard(card);
-      }
-
-      if (Array.isArray(data.settings)) {
-        for (const s of data.settings) {
-          if (s.key && s.value !== undefined) {
-            await this.setSetting(s.key, s.value);
-          }
-        }
-      }
-
-      return { success: true, columns: data.columns.length, cards: data.cards.length };
+      const data = JSON.parse(jsonStr);
+      if (!Array.isArray(data.columns) || !Array.isArray(data.cards)) throw new Error('Invalid file structure');
+      await this.clearAll();
+      await this.batchSaveColumns(data.columns);
+      await this.batchSaveCards(data.cards);
+      return { ok: true, columns: data.columns.length, cards: data.cards.length };
     } catch (err) {
-      return { success: false, error: err.message };
+      return { ok: false, error: err.message };
     }
   }
 
-  async clearAllData() {
-    await this.readyPromise;
-    if (this.engine !== 'IndexedDB' || !this.db) {
-      localStorage.removeItem('board_columns');
-      localStorage.removeItem('board_cards');
-      localStorage.removeItem('board_settings');
-      return;
+  async clearAll() {
+    await this.ready;
+    if (this.idb) {
+      const tx = this.idb.transaction([STORE.COLUMNS, STORE.CARDS, STORE.SETTINGS], 'readwrite');
+      tx.objectStore(STORE.COLUMNS).clear();
+      tx.objectStore(STORE.CARDS).clear();
+      tx.objectStore(STORE.SETTINGS).clear();
+      return this._txDone(tx);
     }
-
-    return new Promise((resolve, reject) => {
-      const tx = this.db.transaction([
-        DB_CONFIG.stores.columns,
-        DB_CONFIG.stores.cards,
-        DB_CONFIG.stores.settings
-      ], 'readwrite');
-
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-
-      tx.objectStore(DB_CONFIG.stores.columns).clear();
-      tx.objectStore(DB_CONFIG.stores.cards).clear();
-      tx.objectStore(DB_CONFIG.stores.settings).clear();
-    });
+    localStorage.removeItem('tf_columns');
+    localStorage.removeItem('tf_cards');
+    localStorage.removeItem('tf_settings');
   }
 
   async resetToDefaults() {
-    await this.clearAllData();
-    for (const col of DEFAULT_COLUMNS) {
-      await this.saveColumn(col);
+    await this.clearAll();
+    if (this.idb) {
+      await this._seedIDB();
+    } else {
+      this._seedLS();
     }
-    for (const card of DEFAULT_CARDS) {
-      await this.saveCard(card);
-    }
-    await this.setSetting('theme', 'dark');
-    return true;
   }
 }
 
-// Global instance exposed to window
-window.db = new WebPageDatabase();
-
+/* ─── Singleton ─────────────────────────────────────────────────────────────── */
+window.db = new TaskFlowDB();
